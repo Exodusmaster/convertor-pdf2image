@@ -1,0 +1,5 @@
+pdf2image
+Pillow
+tk
+pyinstaller
+ttkbootstrap

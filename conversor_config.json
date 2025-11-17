@@ -1,0 +1,9 @@
+{
+  "dpi": 300,
+  "format": "PNG",
+  "quality": 60,
+  "mode": "L",
+  "workers": 4,
+  "theme": "cyborg",
+  "remember": true
+}
