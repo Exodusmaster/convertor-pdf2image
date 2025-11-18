@@ -61,7 +61,8 @@ python main.py
 Si deseas convertir este script en un ejecutable (.exe), usa PyInstaller. Asegúrate de incluir la carpeta de Poppler:
 Bash
 
-pyinstaller --noconsole --onefile --add-data "poppler/bin;poppler/bin" main.py
+pyinstaller --noconsole --onefile --add-data "poppler/bin;poppler/bin" conversor_pdf.py
+pyinstaller conversor_pdf.spec
 
 
 ### Resumen visual de lo que debes hacer:
