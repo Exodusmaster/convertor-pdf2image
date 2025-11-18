@@ -1,8 +1,8 @@
 """
-Conversor & Editor PDF (Hybrid Edition - Fixed)
-- Pestaña 1: Estilo clásico. Muestra progreso global, mensajes de fin y reinicia barra.
-- Pestaña 2: Carpetas a PDF con compresión.
-- Sistema: Parche CMD + Conteo de páginas previo.
+Conversor & Editor PDF (Master Version)
+- Logic Mode 1: Restaurado al algoritmo de umbral puro (Alpha).
+- UI: Signo % ajustado, menús corregidos, progreso global.
+- System: Parche CMD y multiprocesamiento.
 """
 
 import os
@@ -96,25 +96,43 @@ def sort_key_last_number(filepath: str):
     nums = re.findall(r'\d+', Path(filepath).stem)
     return int(nums[-1]) if nums else 0
 
-# --- WORKER TAB 1 ---
+# --- WORKER TAB 1 (PDF -> IMAGEN) ---
 def convert_pdf_worker(pdf_path, out_dir, cfg, progress_cb):
     try:
         total = get_pdf_pages(pdf_path) or 0
         pages_done = 0
         
+        # Helper interno para procesar y guardar
         def save_img(img, idx, base):
-            if cfg["mode"] == "L": img = img.convert("L")
-            elif cfg["mode"] == "1": img = img.convert("L").point(lambda x: 0 if x < 128 else 255, mode="1")
-            else: img = img.convert("RGB")
-            
+            # --- LÓGICA DE CONVERSIÓN (RESTAURADA DEL ALPHA) ---
+            if cfg["mode"] == "L":
+                img = img.convert("L")
+            elif cfg["mode"] == "1":
+                # TÉCNICA DEL ALPHA: Umbral duro (Threshold)
+                # Convierte a gris y luego fuerza a B/N (0 o 255) sin puntos intermedios
+                img = img.convert("L").point(lambda x: 0 if x < 128 else 255, mode="1")
+            else:
+                img = img.convert("RGB")
+            # --------------------------------------------------
+
             fmt = cfg["format"].upper()
             path = os.path.join(out_dir, f"{base}_{idx}.{fmt.lower()}")
-            if fmt == "JPEG": img.save(path, "JPEG", quality=int(cfg["quality"]))
-            elif fmt == "WEBP": img.save(path, "WEBP", quality=int(cfg["quality"]))
-            else: img.save(path, "PNG", optimize=(cfg["mode"]=="1"))
+            
+            if fmt == "JPEG":
+                # JPEG no soporta modo "1" real, se guardará como gris/RGB visualmente B/N
+                img_save = img.convert("L") if img.mode == "1" else img
+                img_save.save(path, "JPEG", quality=int(cfg["quality"]))
+            elif fmt == "WEBP":
+                img.save(path, "WEBP", quality=int(cfg["quality"]))
+            else:
+                # PNG soporta modo "1" real (1 bit por pixel)
+                opts = {"optimize": True} if cfg["mode"] == "1" else {}
+                img.save(path, "PNG", **opts)
+            
             return path
 
         base = safe_name(Path(pdf_path).stem)
+        
         if total > 0:
             for p in range(1, total+1):
                 imgs = convert_from_path(pdf_path, dpi=cfg["dpi"], first_page=p, last_page=p, poppler_path=POPPLER_PATH)
@@ -125,6 +143,7 @@ def convert_pdf_worker(pdf_path, out_dir, cfg, progress_cb):
                 else:
                     progress_cb(p, total, None)
         else:
+            # Fallback
             imgs = convert_from_path(pdf_path, dpi=cfg["dpi"], poppler_path=POPPLER_PATH)
             total = len(imgs)
             for i, img in enumerate(imgs, start=1):
@@ -135,7 +154,7 @@ def convert_pdf_worker(pdf_path, out_dir, cfg, progress_cb):
     except Exception as e:
         return {"pdf": pdf_path, "status": "error", "error": str(e)}
 
-# --- WORKER TAB 2 ---
+# --- WORKER TAB 2 (CARPETAS -> PDF) ---
 def process_folder_to_pdf_worker(folder_path, max_width, quality):
     try:
         folder = Path(folder_path)
@@ -165,7 +184,7 @@ def process_folder_to_pdf_worker(folder_path, max_width, quality):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-# --- APP PRINCIPAL ---
+# --- APP ---
 class App:
     def __init__(self, root):
         self.root = root
@@ -175,7 +194,6 @@ class App:
         self.out_dir_convert = ""
         self.tasks_merge = []
         
-        # Variables para el contador global (Pestaña 1)
         self.total_pages_global = 0
         self.completed_pages_global = 0
         
@@ -186,7 +204,7 @@ class App:
         self.root.after(150, self._process_ui_queue)
 
     def _build_ui(self):
-        self.root.title("Toolbox PDF vFinal")
+        self.root.title("Toolbox PDF Master")
         tb.Style(self.cfg.get("theme", "cyborg"))
 
         self.notebook = tb.Notebook(self.root, bootstyle="dark")
@@ -248,28 +266,23 @@ class App:
         scr.pack(side=LEFT, fill="y")
         self.listbox_convert.configure(yscrollcommand=scr.set)
 
-        # --- AREA DE PROGRESO RESTAURADA ---
+        # --- AREA DE PROGRESO ---
         meter_frame = tb.Frame(parent)
         meter_frame.pack(pady=5)
         
-        # 1. Etiqueta de Conteo Global (ARRIBA DE LA BARRA)
         self.lbl_global_progress = tb.Label(meter_frame, text="Total: 0/0 Páginas", bootstyle="primary", font=("Helvetica", 10, "bold"))
         self.lbl_global_progress.pack(side=TOP, pady=(0, 5))
 
-        # 2. Barra Circular
-        # Quitamos subtext="%" para ponerlo manualmente
+        # Barra sin texto automático
         self.meter = tb.Meter(meter_frame, amounttotal=100, amountused=0, metersize=120, bootstyle="primary", showtext=True) 
         self.meter.pack(side=TOP)
         
-        # Truco: Etiqueta flotante manual para el "%"
-        # rely=0.6 es la posición vertical. Aumenta el número para bajarlo más, disminúyelo para subirlo.
+        # Etiqueta manual para el % bajada 3px (rely=0.62)
         self.lbl_pct = tb.Label(self.meter, text="%", font=("Helvetica", 10), bootstyle="primary")
-        self.lbl_pct.place(relx=0.5, rely=.25, anchor="center")
+        self.lbl_pct.place(relx=0.5, rely=0.30, anchor="center") 
         
-        # 3. Etiqueta de estado (Abajo)
         self.status_label_v3 = tb.Label(meter_frame, text="Esperando...", bootstyle="secondary")
         self.status_label_v3.pack(side=TOP, pady=2)
-        # -----------------------------------
 
         act = tb.Frame(parent)
         act.pack(fill="x", pady=5)
@@ -279,8 +292,7 @@ class App:
         self.btn_cancel.pack(side=LEFT, padx=5)
 
     def _build_merge_tab(self, parent):
-        info = "Selecciona CARPETAS. Cada carpeta se convertirá en un archivo PDF independiente.\n" \
-               "Las imágenes dentro se ordenan y se comprimen."
+        info = "Selecciona CARPETAS. Cada carpeta se convertirá en un archivo PDF independiente."
         tb.Label(parent, text=info, bootstyle="info", justify="center").pack(pady=10)
         
         fr = tb.Frame(parent); fr.pack(fill="x", pady=5)
@@ -309,11 +321,9 @@ class App:
             self.tasks_convert = list(fs)
             self.listbox_convert.delete(0, tk.END)
             for f in self.tasks_convert: self.listbox_convert.insert(tk.END, f)
-            # Calcular páginas totales al seleccionar
             self._estimate_pages()
 
     def _estimate_pages(self):
-        # Calcula el total de páginas de todos los archivos para la barra global
         total = 0
         for f in self.tasks_convert:
             total += get_pdf_pages(f)
@@ -337,15 +347,15 @@ class App:
 
         self.cfg.update({
             "dpi": self.var_dpi.get(), "format": self.var_format.get(),
+            "quality": self.var_quality.get(), "mode": self.var_mode.get(),
             "workers": self.var_workers.get()
         })
         save_config(self.cfg)
 
-        # Reinicio visual
         self.meter.configure(amountused=0)
         self.status_label_v3.configure(text="Preparando...")
         self.completed_pages_global = 0
-        self._estimate_pages() # Recalcular por seguridad
+        self._estimate_pages() 
 
         self.btn_convert.configure(state="disabled")
         self.btn_cancel.configure(state="normal")
@@ -359,13 +369,11 @@ class App:
             out = os.path.join(self.out_dir_convert, name)
             os.makedirs(out, exist_ok=True)
             
-            # Mandamos callback que incluya referencia al Monitor
             fut = self.executor.submit(convert_pdf_worker, pdf, out, cfg_run, partial(self._progress_cb, pdf_path=pdf))
             self.futures.append(fut)
         
         threading.Thread(target=self._monitor_conversion, daemon=True).start()
 
-    # --- MONITOR TAB 1 ---
     def _monitor_conversion(self):
         for fut in as_completed(self.futures):
             try:
@@ -412,48 +420,34 @@ class App:
 
             t = item["type"]
             if t == "page":
-                # Actualizar Barra Circular (Por archivo actual)
                 cur_pct = int((item["per"]/ (item["tot"] or 1))*100)
                 try: self.meter.configure(amountused=cur_pct)
                 except: pass
                 
-                # Actualizar Texto Estado
                 pdf_name = Path(item.get("pdf", "")).stem
                 self.status_label_v3.configure(text=f"Extrayendo: {pdf_name}")
 
-                # Actualizar Contador Global (Texto Arriba)
                 self.completed_pages_global += 1
-                # Evitar que se pase del total si el estimado falló
                 if self.completed_pages_global > self.total_pages_global:
                     self.total_pages_global = self.completed_pages_global 
                 
                 self.lbl_global_progress.configure(text=f"Total: {self.completed_pages_global}/{self.total_pages_global} Páginas")
 
             elif t == "finished_pdf":
-                # PDF terminado: REINICIAR BARRA CIRCULAR A 0
                 try: self.meter.configure(amountused=0)
                 except: pass
-                
                 res = item["res"]
-                name = Path(res['pdf']).stem
-                # Mensaje de confirmación (Popup o status) - El usuario pidió mensaje
-                # Para no ser intrusivo con popups en cada uno, actualizamos status y mostramos en consola/log si hubiera
-                self.status_label_v3.configure(text=f"¡Completado!: {name}")
+                self.status_label_v3.configure(text=f"¡Completado!: {Path(res['pdf']).stem}")
 
             elif t == "all_done":
-                # FINAL DE TODO
                 self.btn_convert.configure(state="normal")
                 self.btn_cancel.configure(state="disabled")
-                # Reiniciar todo a 0
                 try: self.meter.configure(amountused=0)
                 except: pass
                 self.status_label_v3.configure(text="Lista finalizada.")
-                
-                # MENSAJE FINAL (POPUP)
                 messagebox.showinfo("Proceso Terminado", "Se han convertido todos los PDFs de la lista.")
 
             elif t == "merge_done":
-                # Tab 2 Finalizado
                 r = item["res"]
                 if r["status"] == "ok":
                     self.status_bar.configure(text=f"Libro creado: {Path(r['file']).name}")
