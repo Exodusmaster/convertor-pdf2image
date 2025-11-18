@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['conversor_pdf.py'],
+    ['conversor_pdf_v2.py'],
     pathex=[],
     binaries=[],
     datas=[('poppler', 'poppler')],
@@ -36,3 +36,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
